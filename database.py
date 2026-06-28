@@ -1,26 +1,28 @@
 import os
 import certifi
+import redis.asyncio as redis
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 
-# Load the environment variables from the .env file
 load_dotenv()
 
-# Fetch the URI, fallback to a local instance if not found
+# --- MongoDB Setup (Persistent Storage) ---
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-
-# Initialize the async Motor client and explicitly pass the SSL certificates
 client = AsyncIOMotorClient(MONGO_URI, tlsCAFile=certifi.where())
-
-# Define the database and the two core collections
 database = client.admesh_db
 user_collection = database.get_collection("users")
 rule_collection = database.get_collection("rules")
 
+# --- Redis Setup (High-Speed Data Plane) ---
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+
 async def test_connection():
-    """Ping the database to ensure the connection is active."""
     try:
         await client.admin.command('ping')
-        print("Successfully connected to MongoDB Atlas!")
+        print("✅ Successfully connected to MongoDB Atlas!")
+        
+        await redis_client.ping()
+        print("✅ Successfully connected to Redis Cache!")
     except Exception as e:
-        print(f"Database connection failed: {e}")
+        print(f"❌ Database/Cache connection failed: {e}")

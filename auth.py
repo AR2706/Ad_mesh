@@ -17,7 +17,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days for the MVP
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # FastAPI OAuth2 dependency
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies a plaintext password against the database hash."""

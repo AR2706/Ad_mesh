@@ -20,6 +20,7 @@ export const authAPI = {
     const formData = new FormData();
     formData.append("username", username);
     formData.append("password", password);
+    // Remember, we changed this from /login to /token in the backend!
     const response = await api.post("/token", formData);
     return response.data;
   },
@@ -27,8 +28,17 @@ export const authAPI = {
 
 export const advertiserAPI = {
   createRule: async (ruleData) => {
-    // Matches your POST /rules endpoint
     const response = await api.post("/rules", ruleData);
+    return response.data;
+  },
+};
+
+export const publisherAPI = {
+  deploy: async (provider, targetRepo) => {
+    const response = await api.post("/deploy", {
+      provider: provider,
+      target_repo: targetRepo,
+    });
     return response.data;
   },
 };
