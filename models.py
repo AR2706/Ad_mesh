@@ -22,12 +22,11 @@ class UserModel(BaseModel):
 
 class AdRuleModel(BaseModel):
     """Schema for the Advertiser's payload and AI targeting rules"""
-    owner_id: str  # The string representation of the MongoDB ObjectId
+    owner_id: Optional[str] = None  # Make this optional so the backend can set it securely
     target_framework: str = "generic" 
     zone: str 
     html_payload: str
     ad_categories: List[str] 
-    bid_amount: float = 5.00 # NEW: Default bid is $5.00 CPM
     is_active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
