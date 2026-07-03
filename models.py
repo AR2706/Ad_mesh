@@ -34,3 +34,4 @@ class Token(BaseModel):
     """Schema for the JWT Auth Token response"""
     access_token: str
     token_type: str
+    role: Optional[str] = None

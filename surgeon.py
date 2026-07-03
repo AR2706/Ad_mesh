@@ -10,12 +10,9 @@ load_dotenv()
 class AISurgeon:
     def __init__(self, repo_path: str):
         self.repo_path = Path(repo_path)
-        
-        # Initialize the NEW Gemini client
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in .env file")
-            
         self.client = genai.Client(api_key=api_key)
         
         # The strict prompt that prevents the AI from hallucinating
@@ -63,43 +60,52 @@ export default function AdMeshPlaceholder({ zone }) {
             return True
         return False
 
-    def perform_surgery(self, target_file_path: str):
-        """Uses Gemini to modify the target layout file safely."""
+    def perform_surgery(self, target_file_path: str, framework: str): # Added framework parameter
         file_path = Path(target_file_path)
-        
         with open(file_path, "r", encoding="utf-8") as f:
             original_code = f.read()
 
-        print(f"🤖 Gemini is analyzing {file_path.name}...")
+        print(f"🤖 [SURGEON] Gemini is modifying {file_path.name} for {framework.upper()}...")
+        
+        # --- DYNAMIC FRAMEWORK PROMPTING ---
+        if framework in ["react", "nextjs"]:
+            system_instruction = """You are an expert React developer. I will provide a React file.
+            1. Add: import AdMeshPlaceholder from './components/AdMesh/AdMeshPlaceholder'; (adjust path if needed).
+            2. Inject <AdMeshPlaceholder zone="sidebar" /> safely into the main JSX return.
+            3. Do not alter any other logic. Return ONLY raw code."""
+        elif framework == "vanilla-html":
+            system_instruction = """You are an expert web developer. I will provide an HTML file.
+            1. Inject a <script> tag before the closing </body> tag that fetches from 'http://127.0.0.1:8000/deliver?zone=sidebar' and injects the resulting HTML into the DOM.
+            2. Return ONLY raw HTML code."""
+        else:
+            system_instruction = f"""You are an expert developer. I will provide a {framework} file.
+            Inject a safe network fetch call to 'http://127.0.0.1:8000/deliver?zone=sidebar' and render the result into the UI.
+            Do not alter core logic. Return ONLY raw code."""
 
         try:
-            # Using the new SDK syntax
             response = self.client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=original_code,
                 config=types.GenerateContentConfig(
-                    system_instruction=self.system_instruction,
-                    temperature=0.0, # Zero creativity = deterministic code
+                    system_instruction=system_instruction,
+                    temperature=0.0,
                 )
             )
             
             modified_code = response.text.strip()
             
-            # Strip markdown formatting just in case the AI ignores instructions
             if modified_code.startswith("```"):
                 modified_code = "\n".join(modified_code.split("\n")[1:-1])
-            if modified_code.startswith("javascript") or modified_code.startswith("jsx"):
+            if modified_code.startswith("javascript") or modified_code.startswith("jsx") or modified_code.startswith("html"):
                  modified_code = "\n".join(modified_code.split("\n")[1:])
 
-            # Overwrite the client's file with the AI's version
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(modified_code)
                 
-            print(f"✅ Surgery complete. {file_path.name} has been modified.")
+            print(f"✅ Surgery complete. {file_path.name} has been organically integrated.")
             
         except Exception as e:
             print(f"❌ AI Surgery failed: {e}")
-
 # --- Testing the Surgeon ---
 if __name__ == "__main__":
     surgeon = AISurgeon("./dummy-client-repo")

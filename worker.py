@@ -5,6 +5,7 @@ import git # from GitPython
 from github import Github # from PyGithub
 import tempfile
 import shutil
+from analyzer import RepoAnalyzer
 
 # Initialize Celery to use Redis as the message broker
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -34,34 +35,47 @@ def async_github_deployment(self, repo_url: str, github_token: str, zone: str):
         new_branch = f"admesh-integration-{zone}"
         repo.git.checkout('-b', new_branch)
         
-        # 4. RUN THE AI SURGEON
-        # THIS is where the missing AdMeshPlaceholder.jsx gets created!
-        print("🧠 [WORKER] Initializing AI Surgeon...")
+        # 4. ANALYZE AND RUN THE AI SURGEON
+        print("🔍 [WORKER] Analyzing repository structure...")
+        analyzer = RepoAnalyzer(clone_path)
+        plan = analyzer.execute_pipeline()
+        
+        if plan["status"] == "error":
+            raise Exception(f"Repository Analysis Failed: {plan['message']}")
+            
+        target_file = plan["target_file_path"]
+        framework = plan["framework"]
+        
+        print(f"🧠 [WORKER] Initializing AI Surgeon for {framework.upper()}...")
         surgeon = AISurgeon(clone_path)
         
-        # For MVP, assuming React. In production, use analyzer.py here.
-        surgeon.inject_placeholder_component("react") 
-        surgeon.perform_surgery(os.path.join(clone_path, "src", "App.jsx"))
+        # Scaffolding
+        surgeon.inject_placeholder_component(framework) 
+        
+        # PASSED THE FRAMEWORK VARIABLE HERE
+        surgeon.perform_surgery(target_file, framework)
         
         # 5. Commit the changes
         repo.git.add(A=True)
         repo.git.commit('-m', 'feat: Integrate AdMesh distributed delivery hooks')
         
         # 6. Push to GitHub
-        print("☁️ [WORKER] Pushing modified codebase to remote branch...")
-        repo.git.push('--set-upstream', 'origin', new_branch)
+        print("☁️ [WORKER] Force-pushing modified codebase to remote branch...")
+        repo.git.push('--force', '--set-upstream', 'origin', new_branch)
         
         # 7. Open the Pull Request via GitHub API
         g = Github(github_token)
-        # Extract "owner/repo" from "https://github.com/owner/repo"
         repo_path = repo_url.replace("https://github.com/", "").replace(".git", "")
         gh_repo = g.get_repo(repo_path)
+        
+        # Ask GitHub what the default branch is (main, master, develop, etc.)
+        target_branch = gh_repo.default_branch 
         
         pr = gh_repo.create_pull(
             title="🚀 AdMesh Integration Ready",
             body="The AdMesh AI Surgeon has successfully injected the network bridges. Merge this PR to activate monetization.",
             head=new_branch,
-            base="main"
+            base=target_branch # <--- NOW IT ADAPTS AUTOMATICALLY
         )
         
         print(f"🎉 [WORKER] Pull Request created: {pr.html_url}")
@@ -122,7 +136,7 @@ def async_github_unlink(self, repo_url: str, github_token: str, zone: str):
             title="🗑️ AdMesh Unlink Request",
             body="This PR safely removes the AdMesh network bridges from your application. Merging this will completely disconnect your frontend from the AdMesh Control Plane.",
             head=new_branch,
-            base="main"
+            base=gh_repo.default_branch
         )
         print(f"✅ [WORKER] Cleanup PR created: {pr.html_url}")
         return {"status": "success", "pr_url": pr.html_url}

@@ -1,4 +1,48 @@
+# =========================
+# Python & Backend (FastAPI/Celery)
+# =========================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Celery & Redis
+celerybeat-schedule
+celerybeat.pid
+
+# =========================
+# Node.js & Frontends (React/Vite)
+# =========================
+# Dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Production builds
+dist/
+build/
+out/
+
+# =========================
+# Environment & Secrets
+# =========================
 .env
-node_modules
-.venv
-__pycache__
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# =========================
+# OS & IDE Files
+# =========================
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

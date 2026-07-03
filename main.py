@@ -63,7 +63,11 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = create_access_token(
         data={"sub": str(user["_id"]), "role": user["role"]}
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "role": user["role"]
+    }
 
 @app.post("/rules", status_code=status.HTTP_201_CREATED)
 async def create_ad_rule(rule_data: AdRuleModel, current_user: dict = Depends(get_current_user)):
@@ -100,6 +104,43 @@ async def deliver_ad(zone: str, current_user: dict = Depends(get_current_user)):
     html_payload = rule.get("html_payload")
     await redis_client.setex(cache_key, 300, html_payload)
     return {"status": "success", "zone": rule.get("zone"), "htmlContent": html_payload, "source": "mongodb_origin"}
+
+@app.get("/marketplace")
+async def get_marketplace_inventory(current_user: dict = Depends(get_current_user)):
+    """Allows advertisers to browse active publisher slots."""
+    if current_user.get("role") != "advertiser":
+        raise HTTPException(status_code=403, detail="Only advertisers can access the marketplace.")
+    
+    # In a fully scaled app, this would query active repositories. 
+    # For now, we seed the exchange with mock high-value inventory.
+    inventory = [
+        {
+            "id": "inv_1", 
+            "site": "TechCrunch Clone", 
+            "zone": "sidebar", 
+            "traffic": "250k/mo", 
+            "framework": "react",
+            "price": "$5.00 CPM"
+        },
+        {
+            "id": "inv_2", 
+            "site": "Global Finance Dashboard", 
+            "zone": "footer", 
+            "traffic": "1.2M/mo", 
+            "framework": "nextjs",
+            "price": "$12.00 CPM"
+        },
+        {
+            "id": "inv_3", 
+            "site": "Indie Hacker Blog", 
+            "zone": "hero", 
+            "traffic": "45k/mo", 
+            "framework": "vanilla-html",
+            "price": "$2.50 CPM"
+        }
+    ]
+    
+    return {"inventory": inventory}
 
 # --- UPDATED PAYLOAD TO ACCEPT TOKEN ---
 class DeployPayload(BaseModel):
