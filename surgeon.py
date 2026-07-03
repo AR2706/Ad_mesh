@@ -38,13 +38,17 @@ export default function AdMeshPlaceholder({ zone }) {
     const [adData, setAdData] = useState(null);
 
     useEffect(() => {
-        // Fetch ad from the AdMesh Control Plane
+        // 1. Fetch ad from the AdMesh Control Plane
         fetch(`http://127.0.0.1:8000/deliver?zone=${zone}`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('admesh_token')}` }
         })
         .then(res => res.json())
         .then(data => {
-            if(data.status === 'success') setAdData(data);
+            if(data.status === 'success') {
+                setAdData(data);
+                // 2. Fire the tracking pixel for the impression
+                fetch(`http://127.0.0.1:8000/track?zone=${zone}&event=impression&publisher_id=mock_id`, { mode: 'no-cors' });
+            }
         })
         .catch(err => console.error("AdMesh bypass: ", err));
     }, [zone]);

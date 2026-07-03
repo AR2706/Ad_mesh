@@ -1,14 +1,22 @@
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from bson import ObjectId
+from datetime import datetime, timezone
 from database import test_connection, user_collection, rule_collection, redis_client
 from models import UserModel, Token, AdRuleModel
 from auth import get_password_hash, verify_password, create_access_token, get_current_user
 from contextlib import asynccontextmanager
 from deployment import get_cloud_adapter
+
+# --- TELEMETRY HELPER ---
+async def log_event_to_redis(event_type: str, zone: str, publisher_id: str):
+    """Pushes a tracking event into a high-speed Redis Stream."""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    event_data = {"event": event_type, "zone": zone, "timestamp": timestamp}
+    await redis_client.xadd(f"telemetry:{publisher_id}", event_data)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,80 +77,66 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
         "role": user["role"]
     }
 
+# --- CORE MVP ENDPOINTS ---
+
 @app.post("/rules", status_code=status.HTTP_201_CREATED)
 async def create_ad_rule(rule_data: AdRuleModel, current_user: dict = Depends(get_current_user)):
+    """Deploys a payload into the network."""
     if current_user.get("role") != "advertiser":
         raise HTTPException(status_code=403, detail="Only advertisers can create rules")
+        
     rule_dict = rule_data.model_dump()
     rule_dict["owner_id"] = str(current_user["_id"])
+    
+    # 1. Save to MongoDB for persistent storage
     result = await rule_collection.insert_one(rule_dict)
-    await redis_client.delete(f"ad_cache:*:{rule_data.zone}")
-    return {"message": "Rule created and cache flushed", "rule_id": str(result.inserted_id)}
+    
+    # 2. Push directly to the high-speed Redis Edge Cache
+    cache_key = f"active_ad:{rule_data.zone}"
+    await redis_client.set(cache_key, rule_data.html_payload)
+    
+    return {"message": "Payload injected into network cache", "rule_id": str(result.inserted_id)}
 
 @app.get("/deliver")
-async def deliver_ad(zone: str, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") != "publisher":
-        raise HTTPException(status_code=403, detail="Only publishers can fetch ads")
-    publisher_id = str(current_user["_id"])
-    cache_key = f"ad_cache:{publisher_id}:{zone}"
+async def deliver_ad(zone: str, publisher_id: str = "guest", background_tasks: BackgroundTasks = None):
+    """Fetches the active payload and logs telemetry."""
+    cache_key = f"active_ad:{zone}"
+    cached_html = await redis_client.get(cache_key)
     
-    cached_ad = await redis_client.get(cache_key)
-    if cached_ad:
-        return {"status": "success", "zone": zone, "htmlContent": cached_ad, "source": "redis_edge"}
+    # Fire telemetry event in the background (no latency hit for the user)
+    if background_tasks:
+        background_tasks.add_task(log_event_to_redis, "impression", zone, publisher_id)
         
-    blacklisted_categories = current_user.get("blacklisted_categories", [])
-    query = {
-        "is_active": True,
-        "zone": zone,
-        "ad_categories": {"$nin": blacklisted_categories}
-    }
-    rule = await rule_collection.find_one(query)
-    
-    if not rule:
-        return {"status": "no_fill", "htmlContent": ""}
+    if cached_html:
+        return {"status": "success", "zone": zone, "htmlContent": cached_html, "source": "redis_edge"}
         
-    html_payload = rule.get("html_payload")
-    await redis_client.setex(cache_key, 300, html_payload)
-    return {"status": "success", "zone": rule.get("zone"), "htmlContent": html_payload, "source": "mongodb_origin"}
+    return {"status": "no_fill", "htmlContent": ""}
+
+@app.get("/track")
+async def track_event(zone: str, event: str, publisher_id: str, background_tasks: BackgroundTasks):
+    """Silent tracking pixel for impressions and clicks."""
+    if event not in ["impression", "click"]:
+        raise HTTPException(status_code=400, detail="Invalid event type")
+        
+    background_tasks.add_task(log_event_to_redis, event, zone, publisher_id)
+    return {"status": "tracked"}
 
 @app.get("/marketplace")
 async def get_marketplace_inventory(current_user: dict = Depends(get_current_user)):
-    """Allows advertisers to browse active publisher slots."""
+    """Browse active publisher slots (No prices)."""
     if current_user.get("role") != "advertiser":
         raise HTTPException(status_code=403, detail="Only advertisers can access the marketplace.")
     
-    # In a fully scaled app, this would query active repositories. 
-    # For now, we seed the exchange with mock high-value inventory.
     inventory = [
-        {
-            "id": "inv_1", 
-            "site": "TechCrunch Clone", 
-            "zone": "sidebar", 
-            "traffic": "250k/mo", 
-            "framework": "react",
-            "price": "$5.00 CPM"
-        },
-        {
-            "id": "inv_2", 
-            "site": "Global Finance Dashboard", 
-            "zone": "footer", 
-            "traffic": "1.2M/mo", 
-            "framework": "nextjs",
-            "price": "$12.00 CPM"
-        },
-        {
-            "id": "inv_3", 
-            "site": "Indie Hacker Blog", 
-            "zone": "hero", 
-            "traffic": "45k/mo", 
-            "framework": "vanilla-html",
-            "price": "$2.50 CPM"
-        }
+        {"id": "inv_1", "site": "TechCrunch Clone", "zone": "sidebar", "traffic": "250k/mo", "framework": "react"},
+        {"id": "inv_2", "site": "Global Finance Dashboard", "zone": "footer", "traffic": "1.2M/mo", "framework": "nextjs"},
+        {"id": "inv_3", "site": "Indie Hacker Blog", "zone": "hero", "traffic": "45k/mo", "framework": "vanilla-html"}
     ]
     
     return {"inventory": inventory}
 
-# --- UPDATED PAYLOAD TO ACCEPT TOKEN ---
+# --- CLOUD DEPLOYMENT ENDPOINTS ---
+
 class DeployPayload(BaseModel):
     provider: str
     target_repo: str
@@ -156,7 +150,6 @@ async def trigger_deployment(payload: DeployPayload, current_user: dict = Depend
     provider = payload.provider.lower()
     credentials = current_user.get("integrations", {}).get(provider, {})
     
-    # Override database credentials with the ones provided in the UI
     if payload.github_token:
         credentials["github_token"] = payload.github_token
         
@@ -197,8 +190,7 @@ async def trigger_unlink(payload: DeployPayload, current_user: dict = Depends(ge
         {"$unset": {f"integrations.{provider}": ""}}
     )
     
-    publisher_id = current_user["_id"]
-    await redis_client.delete(f"ad_cache:{publisher_id}:sidebar")
+    await redis_client.delete(f"active_ad:sidebar")
     
     result["message"] = "Integration severed. Cache flushed and repository cleanup queued."
     return result

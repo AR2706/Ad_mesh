@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { LineChart, Line, XAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 // --- API Layer ---
 const API_BASE_URL = "http://127.0.0.1:8000";
@@ -60,6 +61,17 @@ export default function App() {
   const [repoUrl, setRepoUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [deployStatus, setDeployStatus] = useState("");
+
+  // --- MOCK TELEMETRY DATA ---
+  const chartData = [
+    { time: "09:00", impressions: 120 },
+    { time: "10:00", impressions: 450 },
+    { time: "11:00", impressions: 320 },
+    { time: "12:00", impressions: 890 },
+    { time: "13:00", impressions: 1400 },
+    { time: "14:00", impressions: 1100 },
+    { time: "15:00", impressions: 1850 },
+  ];
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -195,6 +207,49 @@ export default function App() {
       </nav>
 
       <main className="max-w-4xl mx-auto px-6 mt-12 relative z-10">
+        {/* TELEMETRY CHART */}
+        <div className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-[0_8px_32px_rgba(0,0,0,0.3)] mb-8">
+          <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            Live Network Telemetry
+          </h2>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <XAxis
+                  dataKey="time"
+                  stroke="#475569"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#0f172a",
+                    borderColor: "#334155",
+                    borderRadius: "8px",
+                    color: "#f8fafc",
+                  }}
+                  itemStyle={{ color: "#34d399" }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="impressions"
+                  stroke="#34d399"
+                  strokeWidth={3}
+                  dot={{
+                    fill: "#0f172a",
+                    stroke: "#34d399",
+                    strokeWidth: 2,
+                    r: 4,
+                  }}
+                  activeDot={{ r: 6, fill: "#34d399" }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
         <div className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-8 md:p-12 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
           <div className="mb-8 border-b border-white/10 pb-6">
             <h2 className="text-2xl font-bold text-white mb-2">
