@@ -123,18 +123,40 @@ async def track_event(zone: str, event: str, publisher_id: str, background_tasks
 
 @app.get("/marketplace")
 async def get_marketplace_inventory(current_user: dict = Depends(get_current_user)):
-    """Browse active publisher slots (No prices)."""
+    """
+    Dynamically fetches all integrated publisher repositories from the database.
+    Only users with the 'advertiser' role are permitted access.
+    """
+    # 1. Enforce Role-Based Access Control (RBAC)
     if current_user.get("role") != "advertiser":
-        raise HTTPException(status_code=403, detail="Only advertisers can access the marketplace.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Only advertisers can access the marketplace."
+        )
     
-    inventory = [
-        {"id": "inv_1", "site": "TechCrunch Clone", "zone": "sidebar", "traffic": "250k/mo", "framework": "react"},
-        {"id": "inv_2", "site": "Global Finance Dashboard", "zone": "footer", "traffic": "1.2M/mo", "framework": "nextjs"},
-        {"id": "inv_3", "site": "Indie Hacker Blog", "zone": "hero", "traffic": "45k/mo", "framework": "vanilla-html"}
-    ]
+    # 2. Query users who have successfully registered integration hooks
+    # We look for documents where the 'integrations' field is present and not empty
+    cursor = user_collection.find({"integrations": {"$ne": {}}})
+    integrated_publishers = await cursor.to_list(length=100)
+    
+    inventory = []
+    
+    # 3. Format the dynamic inventory for the frontend
+    for pub in integrated_publishers:
+        integrations = pub.get("integrations", {})
+        
+        # Iterate through provider integrations (e.g., github)
+        for provider, details in integrations.items():
+            inventory.append({
+                "id": str(pub["_id"]),
+                "site": details.get("repo_name", "Integrated Repository"),
+                "zone": "sidebar",  # Default zone for the MVP
+                "traffic": "Live",
+                "framework": "Detected",
+                "is_dynamic": True
+            })
     
     return {"inventory": inventory}
-
 # --- CLOUD DEPLOYMENT ENDPOINTS ---
 
 class DeployPayload(BaseModel):
