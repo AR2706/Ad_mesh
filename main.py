@@ -3,7 +3,8 @@ from fastapi import FastAPI, HTTPException, status, Depends, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+from models import UserModel, Token, AdRuleModel
 from bson import ObjectId
 from datetime import datetime, timezone
 from database import test_connection, user_collection, rule_collection, redis_client
