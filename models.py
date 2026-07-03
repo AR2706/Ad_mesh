@@ -21,13 +21,15 @@ class UserModel(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class AdRuleModel(BaseModel):
-    """Schema for the Advertiser's payload and AI targeting rules"""
-    owner_id: Optional[str] = None  # Make this optional so the backend can set it securely
-    target_framework: str = "generic" 
-    zone: str 
+    owner_id: Optional[str] = None
+    target_framework: str = "generic"
+    zone: str
     html_payload: str
-    ad_categories: List[str] 
+    ad_categories: List[str]
     is_active: bool = True
+    # NEW: Targeting Constraints
+    geo_targets: List[str] = [] # e.g., ["IN", "US", "DE"]
+    allowed_days: List[int] = [0, 1, 2, 3, 4, 5, 6] # 0 = Monday, 6 = Sunday
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class Token(BaseModel):

@@ -1,3 +1,4 @@
+import pymongo
 from fastapi import FastAPI, HTTPException, status, Depends, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
@@ -88,29 +89,24 @@ async def create_ad_rule(rule_data: AdRuleModel, current_user: dict = Depends(ge
     rule_dict = rule_data.model_dump()
     rule_dict["owner_id"] = str(current_user["_id"])
     
-    # 1. Save to MongoDB for persistent storage
     result = await rule_collection.insert_one(rule_dict)
     
-    # 2. Push directly to the high-speed Redis Edge Cache
     cache_key = f"active_ad:{rule_data.zone}"
     await redis_client.set(cache_key, rule_data.html_payload)
     
     return {"message": "Payload injected into network cache", "rule_id": str(result.inserted_id)}
 
-@app.get("/deliver")
-async def deliver_ad(zone: str, publisher_id: str = "guest", background_tasks: BackgroundTasks = None):
-    """Fetches the active payload and logs telemetry."""
-    cache_key = f"active_ad:{zone}"
-    cached_html = await redis_client.get(cache_key)
-    
-    # Fire telemetry event in the background (no latency hit for the user)
-    if background_tasks:
-        background_tasks.add_task(log_event_to_redis, "impression", zone, publisher_id)
-        
-    if cached_html:
-        return {"status": "success", "zone": zone, "htmlContent": cached_html, "source": "redis_edge"}
-        
-    return {"status": "no_fill", "htmlContent": ""}
+class AdRuleModel(BaseModel):
+    owner_id: Optional[str] = None
+    target_framework: str = "generic"
+    zone: str
+    html_payload: str
+    ad_categories: List[str]
+    is_active: bool = True
+    # NEW: Targeting Constraints
+    geo_targets: List[str] = [] # e.g., ["IN", "US", "DE"]
+    allowed_days: List[int] = [0, 1, 2, 3, 4, 5, 6] # 0 = Monday, 6 = Sunday
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 @app.get("/track")
 async def track_event(zone: str, event: str, publisher_id: str, background_tasks: BackgroundTasks):
@@ -121,44 +117,60 @@ async def track_event(zone: str, event: str, publisher_id: str, background_tasks
     background_tasks.add_task(log_event_to_redis, event, zone, publisher_id)
     return {"status": "tracked"}
 
+@app.get("/analytics/{publisher_id}")
+async def get_publisher_analytics(publisher_id: str, current_user: dict = Depends(get_current_user)):
+    """Pulls live telemetry from Redis Streams and formats it for the frontend chart."""
+    if current_user.get("role") != "publisher":
+        raise HTTPException(status_code=403, detail="Unauthorized.")
+        
+    stream_key = f"telemetry:{publisher_id}"
+    
+    try:
+        events = await redis_client.xrange(stream_key, min='-', max='+', count=1000)
+    except Exception as e:
+        print(f"Redis Stream Error: {e}")
+        events = []
+
+    hourly_data = {}
+    
+    for message_id, data in events:
+        if data.get("event") == "impression":
+            timestamp = data.get("timestamp", "")
+            if "T" in timestamp:
+                hour = timestamp.split("T")[1][:2] + ":00"
+                hourly_data[hour] = hourly_data.get(hour, 0) + 1
+                
+    chart_data = [{"time": hour, "impressions": count} for hour, count in sorted(hourly_data.items())]
+    
+    if not chart_data:
+        chart_data = [{"time": datetime.now(timezone.utc).strftime("%H:00"), "impressions": 0}]
+        
+    return {"status": "success", "data": chart_data}
+
 @app.get("/marketplace")
 async def get_marketplace_inventory(current_user: dict = Depends(get_current_user)):
-    """
-    Dynamically fetches all integrated publisher repositories from the database.
-    Only users with the 'advertiser' role are permitted access.
-    """
-    # 1. Enforce Role-Based Access Control (RBAC)
     if current_user.get("role") != "advertiser":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Only advertisers can access the marketplace."
-        )
+        raise HTTPException(status_code=403, detail="Only advertisers can access the marketplace.")
     
-    # 2. Query users who have successfully registered integration hooks
-    # We look for documents where the 'integrations' field is present and not empty
     cursor = user_collection.find({"integrations": {"$ne": {}}})
     integrated_publishers = await cursor.to_list(length=100)
     
     inventory = []
-    
-    # 3. Format the dynamic inventory for the frontend
     for pub in integrated_publishers:
         integrations = pub.get("integrations", {})
-        
-        # Iterate through provider integrations (e.g., github)
         for provider, details in integrations.items():
             inventory.append({
                 "id": str(pub["_id"]),
                 "site": details.get("repo_name", "Integrated Repository"),
-                "zone": "sidebar",  # Default zone for the MVP
+                "zone": "sidebar",
                 "traffic": "Live",
                 "framework": "Detected",
                 "is_dynamic": True
             })
     
     return {"inventory": inventory}
-# --- CLOUD DEPLOYMENT ENDPOINTS ---
 
+# --- CLOUD DEPLOYMENT ENDPOINTS ---
 class DeployPayload(BaseModel):
     provider: str
     target_repo: str
@@ -184,6 +196,17 @@ async def trigger_deployment(payload: DeployPayload, current_user: dict = Depend
         credentials=credentials, 
         payload={"ad_zone": "sidebar"}
     )
+    
+    await user_collection.update_one(
+        {"_id": ObjectId(current_user["_id"])},
+        {"$set": {
+            f"integrations.{provider}": {
+                "repo_name": payload.target_repo,
+                "github_token": credentials.get("github_token", payload.github_token)
+            }
+        }}
+    )
+    
     return result
 
 @app.post("/undeploy")
