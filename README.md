@@ -38,10 +38,12 @@ GEMINI_API_KEY=your_gemini_key
 GROQ_API_KEY=your_groq_key
 MISTRAL_API_KEY=your_mistral_key
 OPENROUTER_API_KEY=your_openrouter_key
+---
 
 
 
-🚀 Instructions & Commands to Run the Code
+
+## 🚀 Instructions & Commands to Run the Code
 To run the full AdMesh system, you must open multiple terminal tabs and start each service concurrently[cite: 1]. Follow the instructions and run the commands below in order.
 
 Step 1: Start the FastAPI Backend
