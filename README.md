@@ -38,3 +38,56 @@ GEMINI_API_KEY=your_gemini_key
 GROQ_API_KEY=your_groq_key
 MISTRAL_API_KEY=your_mistral_key
 OPENROUTER_API_KEY=your_openrouter_key
+
+
+
+🚀 Instructions & Commands to Run the Code
+To run the full AdMesh system, you must open multiple terminal tabs and start each service concurrently[cite: 1]. Follow the instructions and run the commands below in order.
+
+Step 1: Start the FastAPI Backend
+This starts the core Control Plane API (main.py) which the frontends communicate with[cite: 1]. Open your first terminal and run:
+
+Bash
+# Install Python dependencies
+pip install fastapi uvicorn motor redis python-jose passlib bcrypt google-genai openai python-dotenv pydantic certifi
+
+# Launch the server on port 8000
+uvicorn main:app --reload --port 8000
+Step 2: Start the Celery Worker
+This background worker executes the autonomous GitHub deployments and repository unlinking tasks (worker.py)[cite: 1]. Open a second terminal tab and run:
+
+Bash
+# Install worker dependencies
+pip install celery GitPython PyGithub
+
+# Launch the Celery worker
+celery -A worker.celery_app worker --loglevel=info
+Step 3: Start the Advertiser Portal
+This launches the React frontend used by advertisers[cite: 1]. Open a third terminal tab and run:
+
+Bash
+# Navigate to the advertiser portal directory
+cd admesh-advertiser-portal
+
+# Install Node dependencies
+npm install
+
+# Start the Vite development server
+npm run dev
+Step 4: Start the Publisher Portal
+This launches the React frontend used by publishers[cite: 1]. Open a fourth terminal tab and run:
+
+Bash
+# Navigate to the publisher portal directory
+cd admesh-publisher-portal
+
+# Install Node dependencies
+npm install
+
+# Start the Vite development server
+npm run dev
+Step 5: (Optional) Run the CLI Agent Locally
+To test the deterministic scanner and AI code injection without touching a live GitHub repository, you can run the agent locally against the provided dummy repo[cite: 1]. Open a terminal at the project root and run:
+
+Bash
+python admesh.py --path ./dummy-client-repo
